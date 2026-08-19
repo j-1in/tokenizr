@@ -3,9 +3,10 @@
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
-namespace bpe {
-namespace {
 
+namespace bpe {
+
+namespace {
 inline bool is_separator(Byte b) {
     return b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D || b == 0x00;
 }
@@ -15,6 +16,7 @@ inline std::uint64_t hasless_any(std::uint64_t word, unsigned limit) {
     return (word - ones * limit) & ~word & (ones * 128);
 }
 }
+
 std::vector<Byte> read_file(const std::string& path) {
     std::ifstream in(path, std::ios::binary | std::ios::ate);
     if (!in) {
@@ -30,6 +32,7 @@ std::vector<Byte> read_file(const std::string& path) {
     data.pop_back();
     return data;
 }
+
 // split_words: in place — whitespace becomes NUL, each Word is a C-string.
 std::vector<Word> split_words(std::vector<Byte>& input) {
     input.push_back(Byte('\0'));

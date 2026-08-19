@@ -18,3 +18,4 @@ bench-*.out
 # Input datasets are large and must never be committed (rule R8.1)
 data/
 *.dat
+compile_commands.json

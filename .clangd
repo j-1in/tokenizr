@@ -1,0 +1,53 @@
+InlayHints:
+  Designators: No
+
+CompileFlags:
+  Compiler: clang++
+  Remove:
+    # NVCC fatbinary/code-generation options
+    - "-Xfatbin*"
+    - "-gencode*"
+    - "--generate-code*"
+    - "-arch=native"
+
+    # NVCC host-compiler selection/forwarding
+    - "-ccbin*"
+    - "--compiler-bindir*"
+    - "-Xcompiler*"
+    - "--compiler-options*"
+    - "-forward-unknown-to-host-compiler"
+    - "--forward-unknown-to-host-compiler"
+
+    # NVCC language-extension switches
+    - "--expt-extended-lambda"
+    - "-expt-extended-lambda"
+    - "--expt-relaxed-constexpr"
+    - "-expt-relaxed-constexpr"
+
+    # NVCC-specific diagnostic
+    - "-Werror=cross-execution-space-call"
+
+---
+If:
+  PathMatch: .*[.](c|cc|cpp|cxx)$
+
+CompileFlags:
+  Add:
+    - "-fopenmp"
+    - "-isystem"
+    - "/nix/store/bzr88hap8maynlfy5vdkrd4y98zvhjv7-openmp-22.1.8-dev/include"
+
+---
+If:
+  PathMatch: .*[.]cu
+
+CompileFlags:
+  Add:
+    - "--cuda-path=/nix/store/jvb5m3zni39lk9bqc6p2wx92yprinz68-cuda-merged-12.9"
+    - "--cuda-gpu-arch=sm_89"
+    - "-xcuda"
+    - "-Xarch_host"
+    - "-fopenmp"
+    - "-isystem"
+    - "/nix/store/bzr88hap8maynlfy5vdkrd4y98zvhjv7-openmp-22.1.8-dev/include"
+    - "-ferror-limit=0"

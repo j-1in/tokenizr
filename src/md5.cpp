@@ -2,9 +2,10 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
-namespace bpe {
-namespace {
 
+namespace bpe {
+
+namespace {
 const std::uint32_t kShifts[64] = {
     7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
     5, 9,  14, 20, 5, 9,  14, 20, 5, 9,  14, 20, 5, 9,  14, 20,
@@ -41,6 +42,7 @@ std::uint32_t round_function(int i, std::uint32_t b, std::uint32_t c,
     g = static_cast<std::uint32_t>(7 * i) % 16;
     return c ^ (b | ~d);
 }
+
 std::uint32_t rotate_left(std::uint32_t x, int n) {
     return (x << n) | (x >> (32 - n));
 }
@@ -93,6 +95,7 @@ void pad_and_finish(const std::uint8_t* data, std::size_t len, std::uint32_t& a,
     transform(pad, a, b, c, d);
 }
 }
+
 std::string md5_hex(const std::vector<Byte>& data) {
     std::uint32_t a = 0x67452301;
     std::uint32_t b = 0xefcdab89;

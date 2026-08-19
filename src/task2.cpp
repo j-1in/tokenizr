@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace bpe {
+
 namespace {
 
 using u8 = std::uint8_t;

@@ -6,15 +6,17 @@
 #include <omp.h>
 #include <stdexcept>
 #include <sys/resource.h>
-namespace bpe {
-namespace {
 
+namespace bpe {
+
+namespace {
 std::int64_t elapsed_ms(const std::chrono::steady_clock::time_point& start,
                         const std::chrono::steady_clock::time_point& end) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
         .count();
 }
 }
+
 Results run_pipeline(std::vector<Byte>& input) {
     const std::chrono::steady_clock::time_point t0 =
         std::chrono::steady_clock::now();
@@ -36,6 +38,7 @@ Results run_pipeline(std::vector<Byte>& input) {
     }
     return results;
 }
+
 int run_cli(int argc, char** argv) {
     if (argc != 2) {
         LOG(ERROR) << "usage: " << (argc > 0 ? argv[0] : "bpe")

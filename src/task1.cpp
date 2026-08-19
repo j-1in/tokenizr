@@ -7,7 +7,9 @@
 #include <cstring>
 #include <unordered_map>
 #include <utility>
+
 namespace bpe {
+
 namespace {
 
 std::int64_t elapsed_ms(const std::chrono::steady_clock::time_point& start,
@@ -98,6 +100,7 @@ struct ChunkedEq {
     }
 };
 }
+
 // task1: count distinct words; a SWAR (SIMD Within A Register) trick finds each
 // word's end 8 bytes at a time.
 void task1(const std::vector<Word>& words, Results& results) {

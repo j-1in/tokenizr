@@ -2,7 +2,9 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+
 namespace bpe {
+
 void write_output(const Results& results, const std::string& path) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out) {
@@ -17,6 +19,7 @@ void write_output(const Results& results, const std::string& path) {
         throw std::runtime_error("failed while writing file: " + path);
     }
 }
+
 void print_task1(const Results& results) {
     for (const WordCount& entry : results.word_counts) {
         std::cout.write(reinterpret_cast<const char*>(entry.word.data()),

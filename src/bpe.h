@@ -1,8 +1,10 @@
 #ifndef BPE_BPE_H_
 #define BPE_BPE_H_
+
 #include <cstddef>
 #include <string>
 #include <vector>
+
 namespace bpe {
 
 using Byte = unsigned char;
@@ -51,6 +53,7 @@ void print_task1(const Results& results);
 Results run_pipeline(std::vector<Byte>& input);
 
 int run_cli(int argc, char** argv);
+
 }
 
 #endif
