@@ -1,11 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=bpe
+#SBATCH --account=punim0520
 #SBATCH --partition=sapphire
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=16G
-#SBATCH --time=00:30:00
-#SBATCH --output=bpe-%j.out
-#SBATCH --error=bpe-%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64G
+#SBATCH --time=02:00:00
+#SBATCH --output=outputs/bpe-%j.out
+#SBATCH --error=outputs/bpe-%j.err
 
 # ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 # ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓

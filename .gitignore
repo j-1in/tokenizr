@@ -19,3 +19,4 @@ bench-*.out
 data/
 *.dat
 compile_commands.json
+outputs/
