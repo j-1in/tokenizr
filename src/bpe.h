@@ -42,6 +42,10 @@ std::vector<Byte> read_file(const std::string& path);
 
 std::vector<Word> split_words(std::vector<Byte>& input);
 
+std::vector<Word> parallel_split_words(std::vector<Byte>& input);
+
+void parallel_scan(std::vector<int>& starts, std::vector<int>& word_id);
+
 void task1(const std::vector<Word>& words, Results& results);
 
 void task2(const std::vector<CharSplit>& splits, Results& results);
