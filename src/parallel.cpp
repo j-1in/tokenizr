@@ -1,5 +1,6 @@
 #include "bpe.h"
 #include "word_key.h"
+#include "word_counts.h"
 #include "absl/log/log.h"
 #include <chrono>
 #include <omp.h>
@@ -7,7 +8,6 @@
 #include <array>
 #include <limits>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 
 namespace bpe {
@@ -17,7 +17,7 @@ namespace {
 constexpr std::size_t shard_count = 256;
 
 using detail::WordKey;
-using Counts = std::unordered_map<WordKey, std::size_t, detail::WordKeyHash, detail::WordKeyEqual>;
+using Counts = detail::WordCounts;
 using ShardSummary = std::array<std::size_t, shard_count>;
 using CountEntry = std::pair<WordKey, std::size_t>;
 
