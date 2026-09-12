@@ -1,4 +1,8 @@
 #include "bpe.h"
+#include "absl/log/log.h"
+#include <array>
+#include <chrono>
+#include <omp.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -314,52 +318,77 @@ void build_state(const std::vector<CharSplit>& splits, task2_state& state) {
         state.vocabulary[value].assign(1, static_cast<char>(value));
     }
 
-    state.word_frequencies.reserve(splits.size());
+    const auto layout_start = std::chrono::steady_clock::now();
+
+    std::vector<u32> offsets(splits.size() + 1);  // +1 for sentinel
     std::size_t slot_count = 0;
-    for (const CharSplit& split : splits) {
-        slot_count += split.chars.size() + 1;
+
+    for (std::size_t word = 0; word < splits.size(); ++word) {
+        const auto length = splits[word].chars.size();
+        if (length >= no_position || slot_count >= no_position - length - 1)
+            throw std::length_error("input has too many byte positions");
+        offsets[word] = static_cast<u32>(slot_count);
+        slot_count += length + 1;
     }
-    if (slot_count >= no_position) {
-        throw std::length_error("input has too many byte positions");
-    }
-    state.token.reserve(slot_count);
-    state.previous.reserve(slot_count);
-    state.next.reserve(slot_count);
-    state.word_of.reserve(slot_count);
-    state.edge_group.reserve(slot_count);
-    state.alive.reserve(slot_count);
+
+    offsets.back() = static_cast<u32>(slot_count);
+    state.word_frequencies.resize(splits.size());
+    state.token.resize(slot_count);
+    state.previous.resize(slot_count);
+    state.next.resize(slot_count);
+    state.word_of.resize(slot_count);
+    state.edge_group.resize(slot_count, no_position);
+    state.alive.resize(slot_count);
     state.group_state.reserve(slot_count);
     state.group_count.reserve(slot_count);
 
+    std::vector<std::array<u64, byte_value_count>> local_counts;
+    int invalid_flag = 0;  // shared flag to indicate if any thread encountered a NUL byte
+    #pragma omp parallel reduction(| : invalid_flag)
+    {
+        const auto tid = static_cast<std::size_t>(omp_get_thread_num());
+        #pragma omp single
+        local_counts.resize(static_cast<std::size_t>(omp_get_num_threads()));
+        auto& counts = local_counts[tid];
+        #pragma omp for schedule(static)
+        for (std::size_t word = 0; word < splits.size(); ++word) {
+            const auto& split = splits[word];
+            const u32 first = offsets[word];
+            state.word_frequencies[word] = split.count;
+            for (std::size_t index = 0; index < split.chars.size(); ++index) {
+                const u32 position = first + static_cast<u32>(index);
+                const u32 value = split.chars[index];
+                if (value == 0) invalid_flag = 1;
+                state.token[position] = value;
+                state.previous[position] = index == 0 ? no_position : position - 1;
+                state.next[position] = position + 1;
+                state.word_of[position] = static_cast<u32>(word);
+                state.alive[position] = 1;
+                counts[value] += split.count;
+            }
+            const u32 sentinel = offsets[word + 1] - 1;
+            state.token[sentinel] = 0;
+            state.previous[sentinel] = split.chars.empty() ? no_position : sentinel - 1;
+            state.next[sentinel] = no_position;
+            state.word_of[sentinel] = static_cast<u32>(word);
+            state.alive[sentinel] = 0;
+        }
+    }
+
+    if (invalid_flag) throw std::invalid_argument("word contains a NUL byte");
+    for (const auto& counts : local_counts) {
+        for (u32 value = 1; value < byte_value_count; ++value)
+            state.token_count[value] += counts[value];
+    }
+
+    const auto layout_end = std::chrono::steady_clock::now();
+    LOG(INFO) << "task2 layout and byte counts: "
+              << std::chrono::duration<double>(layout_end - layout_start).count() << " s";
+
     std::vector<u32> initial_state(byte_value_count * byte_value_count, no_position);
     for (u32 word = 0; word < splits.size(); ++word) {
-        const CharSplit& split = splits[word];
-        state.word_frequencies.push_back(split.count);
-        const u32 first = static_cast<u32>(state.token.size());
-
-        for (std::size_t index = 0; index < split.chars.size(); ++index) {
-            const u32 position = static_cast<u32>(state.token.size());
-            const u32 value = split.chars[index];
-            if (value == 0) {
-                throw std::invalid_argument("word contains a NUL byte");
-            }
-            state.token.push_back(value);
-            state.previous.push_back(index == 0 ? no_position : position - 1);
-            state.next.push_back(position + 1);
-            state.word_of.push_back(word);
-            state.edge_group.push_back(no_position);
-            state.alive.push_back(1);
-            state.token_count[value] += split.count;
-        }
-
-        const u32 sentinel = static_cast<u32>(state.token.size());
-        state.token.push_back(0);
-        state.previous.push_back(split.chars.empty() ? no_position : sentinel - 1);
-        state.next.push_back(no_position);
-        state.word_of.push_back(word);
-        state.edge_group.push_back(no_position);
-        state.alive.push_back(0);
-
+        const auto& split = splits[word];
+        const u32 first = offsets[word];
         if (split.chars.empty()) {
             continue;
         }
@@ -521,9 +550,17 @@ void finalize_results(const task2_state& state, Results& results) {
 
 void parallel_task2(const std::vector<CharSplit>& splits, Results& results) {
     task2_state state;
+    const auto start = std::chrono::steady_clock::now();
     build_state(splits, state);
+    const auto built = std::chrono::steady_clock::now();
     run_merge_loop(state);
+    const auto merged = std::chrono::steady_clock::now();
     finalize_results(state, results);
+    const auto finalized = std::chrono::steady_clock::now();
+    LOG(INFO) << "task2 initialization: " << std::chrono::duration<double>(built - start).count()
+              << " s; merge loop: " << std::chrono::duration<double>(merged - built).count()
+              << " s; finalization: " << std::chrono::duration<double>(finalized - merged).count()
+              << " s";
 }
 
 }
