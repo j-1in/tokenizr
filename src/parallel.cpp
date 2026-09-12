@@ -1,4 +1,5 @@
 #include "bpe.h"
+#include "word_key.h"
 #include "absl/log/log.h"
 #include <chrono>
 #include <omp.h>
@@ -15,9 +16,10 @@ namespace {
 
 constexpr std::size_t shard_count = 256;
 
-using Counts = std::unordered_map<std::string_view, std::size_t>;
+using detail::WordKey;
+using Counts = std::unordered_map<WordKey, std::size_t, detail::WordKeyHash, detail::WordKeyEqual>;
 using ShardSummary = std::array<std::size_t, shard_count>;
-using CountEntry = std::pair<std::string_view, std::size_t>;
+using CountEntry = std::pair<WordKey, std::size_t>;
 
 struct ThreadBlock {
     std::size_t tid;
@@ -75,8 +77,8 @@ std::vector<Counts> local_count_words(const std::vector<Byte>& input, std::size_
             if (i == block.end) break;
             const std::size_t word_beg = i;
             while (i < input.size() && !is_separator(input[i])) ++i;  // Find end of word
-            ++counts[std::string_view(reinterpret_cast<const char*>(input.data() + word_beg),
-                                      i - word_beg)];
+            ++counts[WordKey{std::string_view(
+                reinterpret_cast<const char*>(input.data() + word_beg), i - word_beg)}];
             ++occurrences;
         }
     }
@@ -85,9 +87,8 @@ std::vector<Counts> local_count_words(const std::vector<Byte>& input, std::size_
 }
 
 RoutedCounts route_counts(std::vector<Counts>& local_counts, std::size_t local_distinct) {
-    const auto shard_of = [](std::string_view word) {
-        return std::hash<std::string_view>{}(word) >>
-               (std::numeric_limits<std::size_t>::digits - 8);
+    const auto shard_of = [](const WordKey& word) {
+        return word.hash >> (std::numeric_limits<std::size_t>::digits - 8);
     };
 
     std::vector<ShardSummary> histogram(local_counts.size());
@@ -183,10 +184,10 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
     for (std::size_t shard = 0; shard < shard_count; ++shard) {
         std::size_t i = output_offsets[shard];
         for (const auto& entry : shards[shard]) {
-            const auto* bytes = reinterpret_cast<const Byte*>(entry.first.data());
-            results.word_counts[i].word.assign(bytes, bytes + entry.first.size());
+            const auto* bytes = reinterpret_cast<const Byte*>(entry.first.bytes.data());
+            results.word_counts[i].word.assign(bytes, bytes + entry.first.bytes.size());
             results.word_counts[i].count = entry.second;
-            results.char_splits[i].chars.assign(bytes, bytes + entry.first.size());
+            results.char_splits[i].chars.assign(bytes, bytes + entry.first.bytes.size());
             results.char_splits[i].count = entry.second;
             ++i;
         }
@@ -207,6 +208,7 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
 }
 
 [[deprecated]] std::vector<Word> parallel_split_words(std::vector<Byte>& input) {
+    const std::size_t input_size = input.size();
     input.push_back(Byte('\0'));
     std::vector<std::size_t> counts;
     std::vector<std::size_t> offsets;
@@ -214,7 +216,7 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
 
     #pragma omp parallel shared(counts, offsets, words)
     {
-        const ThreadBlock block = current_thread_block(input.size());
+        const ThreadBlock block = current_thread_block(input_size);
 
         #pragma omp single
         {
