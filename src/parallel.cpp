@@ -42,30 +42,42 @@ inline ThreadBlock current_thread_block(std::size_t size) {
     return ThreadBlock{tid, nthreads, beg, end};
 }
 
-inline bool is_separator(Byte b) {
-    return b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D || b == 0x00;
-}
+inline bool is_separator(Byte b) { return b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D; }
 
 std::int64_t elapsed_ms(const std::chrono::steady_clock::time_point& start,
                         const std::chrono::steady_clock::time_point& end) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
-std::vector<Counts> count_words_locally(const std::vector<Word>& words) {
+std::vector<Counts> local_count_words(const std::vector<Byte>& input, std::size_t& occurrences) {
     std::vector<Counts> local_counts;
+    occurrences = 0;  // Total occurrences across all threads
 
-    #pragma omp parallel shared(local_counts)
+    #pragma omp parallel shared(local_counts) reduction(+ : occurrences)
     {
-        const ThreadBlock block = current_thread_block(words.size());
+        const ThreadBlock block = current_thread_block(input.size());
 
         #pragma omp single
         local_counts.resize(block.nthreads);
 
-        // Each worker exclusively owns its map.
         auto& counts = local_counts[block.tid];
 
-        for (std::size_t i = block.beg; i < block.end; ++i) {
-            ++counts[std::string_view(reinterpret_cast<const char*>(words[i].bytes))];
+        std::size_t i = block.beg;
+
+        // Find next separator or reach end of chunk if starting in middle of a word.
+        if (i > 0 && i < block.end && !is_separator(input[i - 1])) {
+            while (i < block.end && !is_separator(input[i])) ++i;
+        }
+
+        // Count words in thread's chunk.
+        while (i < block.end) {
+            while (i < block.end && is_separator(input[i])) ++i;  // Skip consecutive separators
+            if (i == block.end) break;
+            const std::size_t word_beg = i;
+            while (i < input.size() && !is_separator(input[i])) ++i;  // Find end of word
+            ++counts[std::string_view(reinterpret_cast<const char*>(input.data() + word_beg),
+                                      i - word_beg)];
+            ++occurrences;
         }
     }
 
@@ -132,16 +144,10 @@ std::vector<Counts> reduce_shards(const RoutedCounts& routed) {
 }
 
 void parallel_task1(std::vector<Byte>& input, Results& results) {
-    const auto t0 = std::chrono::steady_clock::now();
-
-    const std::vector<Word> words = parallel_split_words(input);
-
-    const auto t1 = std::chrono::steady_clock::now();
-    LOG(INFO) << "split words: " << elapsed_ms(t0, t1) << " ms";
-
     const auto count_start = std::chrono::steady_clock::now();
 
-    auto local_counts = count_words_locally(words);
+    std::size_t occurrences = 0;
+    auto local_counts = local_count_words(input, occurrences);
 
     const auto local_end = std::chrono::steady_clock::now();
 
@@ -191,16 +197,16 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
     const auto copy_end = std::chrono::steady_clock::now();
     LOG(INFO) << "word count: " << elapsed_ms(count_start, count_end) << " ms";
     LOG(INFO) << "char split: " << elapsed_ms(count_end, copy_end) << " ms";
-    LOG(INFO) << "local aggregation: " << elapsed_ms(count_start, local_end)
+    LOG(INFO) << "fused discovery and local aggregation: " << elapsed_ms(count_start, local_end)
               << " ms; shard routing: " << elapsed_ms(local_end, route_end)
               << " ms; shard reduction: " << elapsed_ms(route_end, count_end) << " ms";
     LOG(INFO) << "reduction shards: " << shard_count
               << "; largest shard entries: " << routed.largest_shard;
-    LOG(INFO) << "aggregation occurrences M: " << words.size()
+    LOG(INFO) << "aggregation occurrences M: " << occurrences
               << "; local distinct D: " << local_distinct << "; global distinct U: " << distinct;
 }
 
-std::vector<Word> parallel_split_words(std::vector<Byte>& input) {
+[[deprecated]] std::vector<Word> parallel_split_words(std::vector<Byte>& input) {
     input.push_back(Byte('\0'));
     std::vector<std::size_t> counts;
     std::vector<std::size_t> offsets;
