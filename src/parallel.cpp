@@ -271,8 +271,5 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
     return words;
 }
 
-void parallel_task2(const std::vector<CharSplit>& splits, Results& results) {
-    task2(splits, results);
-}
 
 }
