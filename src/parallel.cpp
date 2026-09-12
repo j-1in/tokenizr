@@ -12,9 +12,12 @@
 namespace bpe {
 
 namespace {
-inline bool is_separator(Byte b) {
-    return b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D || b == 0x00;
-}
+
+constexpr std::size_t shard_count = 256;
+
+using Counts = std::unordered_map<std::string_view, std::size_t>;
+using ShardSummary = std::array<std::size_t, shard_count>;
+using CountEntry = std::pair<std::string_view, std::size_t>;
 
 struct ThreadBlock {
     std::size_t tid;
@@ -23,10 +26,15 @@ struct ThreadBlock {
     std::size_t end;
 };
 
+struct RoutedCounts {
+    std::vector<CountEntry> entries;
+    std::array<std::size_t, shard_count + 1> offsets{};
+    std::size_t largest_shard = 0;
+};
+
 inline ThreadBlock current_thread_block(std::size_t size) {
     const std::size_t tid = static_cast<std::size_t>(omp_get_thread_num());
-    const std::size_t nthreads =
-        static_cast<std::size_t>(omp_get_num_threads());
+    const std::size_t nthreads = static_cast<std::size_t>(omp_get_num_threads());
     const std::size_t base = size / nthreads;
     const std::size_t rem = size % nthreads;
     const std::size_t beg = tid * base + std::min(tid, rem);
@@ -34,31 +42,17 @@ inline ThreadBlock current_thread_block(std::size_t size) {
     return ThreadBlock{tid, nthreads, beg, end};
 }
 
+inline bool is_separator(Byte b) {
+    return b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D || b == 0x00;
+}
+
 std::int64_t elapsed_ms(const std::chrono::steady_clock::time_point& start,
                         const std::chrono::steady_clock::time_point& end) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-        .count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
-constexpr std::size_t shard_count = 256;
-using Counts = std::unordered_map<std::string_view, std::size_t>;
-using Summary = std::array<std::size_t, shard_count>;
-using Entry = std::pair<std::string_view, std::size_t>;
-}
-
-void parallel_task1(std::vector<Byte>& input, Results& results) {
-    const std::chrono::steady_clock::time_point t0 =
-        std::chrono::steady_clock::now();
-
-    const std::vector<Word> words = parallel_split_words(input);
-
-    const std::chrono::steady_clock::time_point t1 =
-        std::chrono::steady_clock::now();
-    LOG(INFO) << "split words: " << elapsed_ms(t0, t1) << " ms";
-
-    using Counts = std::unordered_map<std::string_view, std::size_t>;
+std::vector<Counts> count_words_locally(const std::vector<Word>& words) {
     std::vector<Counts> local_counts;
-    const auto count_start = std::chrono::steady_clock::now();
 
     #pragma omp parallel shared(local_counts)
     {
@@ -67,29 +61,24 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
         #pragma omp single
         local_counts.resize(block.nthreads);
 
+        // Each worker exclusively owns its map.
         auto& counts = local_counts[block.tid];
+
         for (std::size_t i = block.beg; i < block.end; ++i) {
-            ++counts[std::string_view(
-                reinterpret_cast<const char*>(words[i].bytes))];
+            ++counts[std::string_view(reinterpret_cast<const char*>(words[i].bytes))];
         }
     }
 
-    const auto local_end = std::chrono::steady_clock::now();
-    std::size_t local_distinct = 0;
-    for (const auto& counts : local_counts) {
-        local_distinct += counts.size();
-    }
+    return local_counts;
+}
 
-    // Route equal byte strings to the same shard.
-    constexpr std::size_t shard_count = 256;
+RoutedCounts route_counts(std::vector<Counts>& local_counts, std::size_t local_distinct) {
     const auto shard_of = [](std::string_view word) {
         return std::hash<std::string_view>{}(word) >>
                (std::numeric_limits<std::size_t>::digits - 8);
     };
 
-    using Summary = std::array<std::size_t, shard_count>;
-    using Entry = std::pair<std::string_view, std::size_t>;
-    std::vector<Summary> histogram(local_counts.size());
+    std::vector<ShardSummary> histogram(local_counts.size());
 
     #pragma omp parallel for schedule(static)
     for (std::size_t t = 0; t < local_counts.size(); ++t) {
@@ -98,53 +87,89 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
         }
     }
 
-    // Prefix only P*S summaries. Each local map gets its own interval within
-    // each shard, so scatter requires neither atomics nor concurrent push_back.
-    std::array<std::size_t, shard_count + 1> shard_offsets{};
-    std::vector<Summary> cursors(local_counts.size());
-    std::size_t largest_shard = 0;
+    RoutedCounts routed;
+    routed.entries.resize(local_distinct);
+
+    std::vector<ShardSummary> cursors(local_counts.size());
 
     for (std::size_t shard = 0; shard < shard_count; ++shard) {
-        std::size_t offset = shard_offsets[shard];
+        std::size_t offset = routed.offsets[shard];
+
         for (std::size_t t = 0; t < local_counts.size(); ++t) {
             cursors[t][shard] = offset;
             offset += histogram[t][shard];
         }
-        shard_offsets[shard + 1] = offset;
-        largest_shard = std::max(largest_shard, offset - shard_offsets[shard]);
-    }
 
-    std::vector<Entry> routed(local_distinct);
+        routed.offsets[shard + 1] = offset;
+        routed.largest_shard = std::max(routed.largest_shard, offset - routed.offsets[shard]);
+    }
 
     #pragma omp parallel for schedule(static)
     for (std::size_t t = 0; t < local_counts.size(); ++t) {
         for (const auto& entry : local_counts[t]) {
-            routed[cursors[t][shard_of(entry.first)]++] = entry;
+            routed.entries[cursors[t][shard_of(entry.first)]++] = entry;
         }
         Counts{}.swap(local_counts[t]);
     }
 
-    const auto route_end = std::chrono::steady_clock::now();
+    return routed;
+}
+
+std::vector<Counts> reduce_shards(const RoutedCounts& routed) {
     std::vector<Counts> shards(shard_count);
 
     #pragma omp parallel for schedule(dynamic, 1)
     for (std::size_t shard = 0; shard < shard_count; ++shard) {
         auto& counts = shards[shard];
-        for (std::size_t i = shard_offsets[shard]; i < shard_offsets[shard + 1];
-             ++i) {
-            counts[routed[i].first] += routed[i].second;
+
+        for (std::size_t i = routed.offsets[shard]; i < routed.offsets[shard + 1]; ++i) {
+            counts[routed.entries[i].first] += routed.entries[i].second;
         }
     }  // Each complete shard has one owner; no shared map growth occurs.
 
-    std::vector<Entry>().swap(routed);
+    return shards;
+}
+}
+
+void parallel_task1(std::vector<Byte>& input, Results& results) {
+    const auto t0 = std::chrono::steady_clock::now();
+
+    const std::vector<Word> words = parallel_split_words(input);
+
+    const auto t1 = std::chrono::steady_clock::now();
+    LOG(INFO) << "split words: " << elapsed_ms(t0, t1) << " ms";
+
+    const auto count_start = std::chrono::steady_clock::now();
+
+    auto local_counts = count_words_locally(words);
+
+    const auto local_end = std::chrono::steady_clock::now();
+
+    std::size_t local_distinct = 0;
+    for (const auto& counts : local_counts) {
+        local_distinct += counts.size();
+    }
+
+    // Route equal byte strings to the same shard.
+    // Prefix only P*S summaries. Each local map gets its own interval within
+    // each shard, so scatter requires neither atomics nor concurrent push_back.
+    auto routed = route_counts(local_counts, local_distinct);
+
+    const auto route_end = std::chrono::steady_clock::now();
+
+    auto shards = reduce_shards(routed);
+    std::vector<CountEntry>().swap(routed.entries);
     std::array<std::size_t, shard_count + 1> output_offsets{};
+
     for (std::size_t shard = 0; shard < shard_count; ++shard) {
-        output_offsets[shard + 1] =
-            output_offsets[shard] + shards[shard].size();
+        output_offsets[shard + 1] = output_offsets[shard] + shards[shard].size();
     }
 
     const auto count_end = std::chrono::steady_clock::now();
+
     const std::size_t distinct = output_offsets.back();
+
+    // Allocate and populate results
     results.word_counts.resize(distinct);
     results.char_splits.resize(distinct);
 
@@ -152,13 +177,10 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
     for (std::size_t shard = 0; shard < shard_count; ++shard) {
         std::size_t i = output_offsets[shard];
         for (const auto& entry : shards[shard]) {
-            const auto* bytes =
-                reinterpret_cast<const Byte*>(entry.first.data());
-            results.word_counts[i].word.assign(bytes,
-                                               bytes + entry.first.size());
+            const auto* bytes = reinterpret_cast<const Byte*>(entry.first.data());
+            results.word_counts[i].word.assign(bytes, bytes + entry.first.size());
             results.word_counts[i].count = entry.second;
-            results.char_splits[i].chars.assign(bytes,
-                                                bytes + entry.first.size());
+            results.char_splits[i].chars.assign(bytes, bytes + entry.first.size());
             results.char_splits[i].count = entry.second;
             ++i;
         }
@@ -171,13 +193,11 @@ void parallel_task1(std::vector<Byte>& input, Results& results) {
     LOG(INFO) << "char split: " << elapsed_ms(count_end, copy_end) << " ms";
     LOG(INFO) << "local aggregation: " << elapsed_ms(count_start, local_end)
               << " ms; shard routing: " << elapsed_ms(local_end, route_end)
-              << " ms; shard reduction: " << elapsed_ms(route_end, count_end)
-              << " ms";
+              << " ms; shard reduction: " << elapsed_ms(route_end, count_end) << " ms";
     LOG(INFO) << "reduction shards: " << shard_count
-              << "; largest shard entries: " << largest_shard;
+              << "; largest shard entries: " << routed.largest_shard;
     LOG(INFO) << "aggregation occurrences M: " << words.size()
-              << "; local distinct D: " << local_distinct
-              << "; global distinct U: " << distinct;
+              << "; local distinct D: " << local_distinct << "; global distinct U: " << distinct;
 }
 
 std::vector<Word> parallel_split_words(std::vector<Byte>& input) {
@@ -188,16 +208,12 @@ std::vector<Word> parallel_split_words(std::vector<Byte>& input) {
 
     #pragma omp parallel shared(counts, offsets, words)
     {
-        const std::size_t tid = static_cast<std::size_t>(omp_get_thread_num());
-        const std::size_t nthreads =
-            static_cast<std::size_t>(omp_get_num_threads());
-
         const ThreadBlock block = current_thread_block(input.size());
 
         #pragma omp single
         {
-            counts.resize(nthreads);
-            offsets.resize(nthreads);
+            counts.resize(block.nthreads);
+            offsets.resize(block.nthreads);
         }
 
         std::size_t local_count = 0;
@@ -214,7 +230,7 @@ std::vector<Word> parallel_split_words(std::vector<Byte>& input) {
             }
             prev_is_sep = curr_is_sep;
         }
-        counts[tid] = local_count;
+        counts[block.tid] = local_count;
 
         // All counts and boundary reads must finish before prefixing/writing.
         #pragma omp barrier
@@ -230,7 +246,7 @@ std::vector<Word> parallel_split_words(std::vector<Byte>& input) {
         }
 
         // Read each owned byte before normalizing it, never reread a neighbour
-        std::size_t out = offsets[tid];
+        std::size_t out = offsets[block.tid];
         prev_is_sep = initial_prev_is_sep;
         for (std::size_t i = block.beg; i < block.end; ++i) {
             const bool curr_is_sep = is_separator(input[i]);

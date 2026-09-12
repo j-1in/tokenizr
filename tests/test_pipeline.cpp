@@ -4,6 +4,7 @@
 
 #include "gtest/gtest.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -42,16 +43,21 @@ TEST(RunPipeline, ProducesTask1AndTask2Results) {
     std::vector<bpe::Byte> buffer(input.begin(), input.end());
     const bpe::Results r = bpe::run_pipeline(buffer);
 
-    // Task 1.1 (word_counts is in lexicographic order): hug x2, pug x1.
+    // Task 1 order is unspecified; canonicalize a copy outside the pipeline.
+    auto word_counts = r.word_counts;
+    std::sort(word_counts.begin(), word_counts.end(),
+              [](const bpe::WordCount& a, const bpe::WordCount& b) {
+                  return a.word < b.word;
+              });
     ASSERT_EQ(r.word_counts.size(), 2u);
     EXPECT_EQ(
-        std::string(r.word_counts[0].word.begin(), r.word_counts[0].word.end()),
+        std::string(word_counts[0].word.begin(), word_counts[0].word.end()),
         "hug");
-    EXPECT_EQ(r.word_counts[0].count, 2u);
+    EXPECT_EQ(word_counts[0].count, 2u);
     EXPECT_EQ(
-        std::string(r.word_counts[1].word.begin(), r.word_counts[1].word.end()),
+        std::string(word_counts[1].word.begin(), word_counts[1].word.end()),
         "pug");
-    EXPECT_EQ(r.word_counts[1].count, 1u);
+    EXPECT_EQ(word_counts[1].count, 1u);
 
     // Task 1.2 feeds Task 2; tokens must be non-empty and internally
     // consistent (each token's bytes occur in the corpus).
