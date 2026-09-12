@@ -34,13 +34,11 @@ u64 text_fingerprint(const std::string& left, const std::string& right) {
     std::size_t i = 0;
     const std::size_t n = std::min<std::size_t>(left.size(), 8);
     for (; i < n; ++i) {
-        fingerprint |= static_cast<u64>(static_cast<u8>(left[i]))
-                       << (8 * (7 - i));
+        fingerprint |= static_cast<u64>(static_cast<u8>(left[i])) << (8 * (7 - i));
     }
     const std::size_t m = std::min<std::size_t>(right.size(), 8 - i);
     for (std::size_t j = 0; j < m; ++j, ++i) {
-        fingerprint |= static_cast<u64>(static_cast<u8>(right[j]))
-                       << (8 * (7 - i));
+        fingerprint |= static_cast<u64>(static_cast<u8>(right[j])) << (8 * (7 - i));
     }
     return fingerprint;
 }
@@ -151,8 +149,7 @@ struct task2_state {
     u32 free_head = no_position;
 };
 
-bool queue_compare::operator()(const queue_entry& left,
-                               const queue_entry& right) const {
+bool queue_compare::operator()(const queue_entry& left, const queue_entry& right) const {
     if (left.count != right.count) {
         return left.count < right.count;
     }
@@ -161,10 +158,10 @@ bool queue_compare::operator()(const queue_entry& left,
     }
     const pair_state& a = state->pair_states[left.state];
     const pair_state& b = state->pair_states[right.state];
-    const std::string left_text = state->vocabulary[pair_left(a.key)] +
-                                  state->vocabulary[pair_right(a.key)];
-    const std::string right_text = state->vocabulary[pair_left(b.key)] +
-                                   state->vocabulary[pair_right(b.key)];
+    const std::string left_text =
+        state->vocabulary[pair_left(a.key)] + state->vocabulary[pair_right(a.key)];
+    const std::string right_text =
+        state->vocabulary[pair_left(b.key)] + state->vocabulary[pair_right(b.key)];
     return std::strcmp(left_text.c_str(), right_text.c_str()) > 0;
 }
 
@@ -177,8 +174,8 @@ u32 create_pair_state(task2_state& state, u64 key) {
     state.pair_states.push_back(pair_state{});
     pair_state& pair = state.pair_states.back();
     pair.key = key;
-    pair.fingerprint = text_fingerprint(state.vocabulary[pair_left(key)],
-                                        state.vocabulary[pair_right(key)]);
+    pair.fingerprint =
+        text_fingerprint(state.vocabulary[pair_left(key)], state.vocabulary[pair_right(key)]);
     state.born_states.push_back(state_id);
     return state_id;
 }
@@ -187,15 +184,13 @@ u32 get_left_pair_state(task2_state& state, u32 left, u32 merged) {
     if (left == merged) {
         if (state.same_stamp != merged) {
             state.same_stamp = merged;
-            state.same_state =
-                create_pair_state(state, pack_pair(merged, merged));
+            state.same_state = create_pair_state(state, pack_pair(merged, merged));
         }
         return state.same_state;
     }
     if (state.left_stamp[left] != merged) {
         state.left_stamp[left] = merged;
-        state.left_state[left] =
-            create_pair_state(state, pack_pair(left, merged));
+        state.left_state[left] = create_pair_state(state, pack_pair(left, merged));
     }
     return state.left_state[left];
 }
@@ -204,15 +199,13 @@ u32 get_right_pair_state(task2_state& state, u32 merged, u32 right) {
     if (right == merged) {
         if (state.same_stamp != merged) {
             state.same_stamp = merged;
-            state.same_state =
-                create_pair_state(state, pack_pair(merged, merged));
+            state.same_state = create_pair_state(state, pack_pair(merged, merged));
         }
         return state.same_state;
     }
     if (state.right_stamp[right] != merged) {
         state.right_stamp[right] = merged;
-        state.right_state[right] =
-            create_pair_state(state, pack_pair(merged, right));
+        state.right_state[right] = create_pair_state(state, pack_pair(merged, right));
     }
     return state.right_state[right];
 }
@@ -264,8 +257,7 @@ void remove_edge(task2_state& state, u32 start, u64 frequency) {
     state.edge_group[start] = no_position;
 }
 
-void add_edge(task2_state& state, u32 start, u32 state_id, u32 word,
-              u64 frequency) {
+void add_edge(task2_state& state, u32 start, u32 state_id, u32 word, u64 frequency) {
     const u32 group = get_word_group(state, state_id, word);
     pair_state& pair = state.pair_states[state_id];
     if (state.group_count[group]++ == 0) {
@@ -339,8 +331,7 @@ void build_state(const std::vector<CharSplit>& splits, task2_state& state) {
     state.group_state.reserve(slot_count);
     state.group_count.reserve(slot_count);
 
-    std::vector<u32> initial_state(byte_value_count * byte_value_count,
-                                   no_position);
+    std::vector<u32> initial_state(byte_value_count * byte_value_count, no_position);
     for (u32 word = 0; word < splits.size(); ++word) {
         const CharSplit& split = splits[word];
         state.word_frequencies.push_back(split.count);
@@ -363,8 +354,7 @@ void build_state(const std::vector<CharSplit>& splits, task2_state& state) {
 
         const u32 sentinel = static_cast<u32>(state.token.size());
         state.token.push_back(0);
-        state.previous.push_back(split.chars.empty() ? no_position
-                                                     : sentinel - 1);
+        state.previous.push_back(split.chars.empty() ? no_position : sentinel - 1);
         state.next.push_back(no_position);
         state.word_of.push_back(word);
         state.edge_group.push_back(no_position);
@@ -373,8 +363,7 @@ void build_state(const std::vector<CharSplit>& splits, task2_state& state) {
         if (split.chars.empty()) {
             continue;
         }
-        for (u32 position = first; is_live(state, position);
-             position = state.next[position]) {
+        for (u32 position = first; is_live(state, position); position = state.next[position]) {
             const u32 next_position = state.next[position];
             if (!is_live(state, next_position)) {
                 break;
@@ -430,8 +419,7 @@ void run_merge_loop(task2_state& state) {
         }
 
         const u64 best_key = state.pair_states[best_state].key;
-        std::vector<u32> positions =
-            std::move(state.pair_states[best_state].positions);
+        std::vector<u32> positions = std::move(state.pair_states[best_state].positions);
         const u32 left_token = pair_left(best_key);
         const u32 right_token = pair_right(best_key);
         const u32 merged_token = static_cast<u32>(state.vocabulary.size());
@@ -444,8 +432,8 @@ void run_merge_loop(task2_state& state) {
         state.vocabulary.push_back(std::move(merged_text));
         state.token_count.push_back(0);
         if (state.left_stamp.size() <= merged_token) {
-            const std::size_t new_size = std::max<std::size_t>(
-                state.left_stamp.size() * 2, merged_token + 1024);
+            const std::size_t new_size =
+                std::max<std::size_t>(state.left_stamp.size() * 2, merged_token + 1024);
             state.left_stamp.resize(new_size, no_position);
             state.left_state.resize(new_size, no_position);
             state.right_stamp.resize(new_size, no_position);
@@ -489,13 +477,13 @@ void run_merge_loop(task2_state& state) {
             state.edge_group[right_position] = no_position;
 
             if (is_live(state, left_position)) {
-                const u32 state_id = get_left_pair_state(
-                    state, state.token[left_position], merged_token);
+                const u32 state_id =
+                    get_left_pair_state(state, state.token[left_position], merged_token);
                 add_edge(state, left_position, state_id, word, frequency);
             }
             if (is_live(state, after_position)) {
-                const u32 state_id = get_right_pair_state(
-                    state, merged_token, state.token[after_position]);
+                const u32 state_id =
+                    get_right_pair_state(state, merged_token, state.token[after_position]);
                 add_edge(state, position, state_id, word, frequency);
             }
         }
@@ -511,22 +499,19 @@ void finalize_results(const task2_state& state, Results& results) {
             live_tokens.push_back(token_id);
         }
     }
-    std::sort(live_tokens.begin(), live_tokens.end(),
-              [&state](u32 left, u32 right) {
-                  if (state.token_count[left] != state.token_count[right]) {
-                      return state.token_count[left] > state.token_count[right];
-                  }
-                  return std::strcmp(state.vocabulary[left].c_str(),
-                                     state.vocabulary[right].c_str()) < 0;
-              });
+    std::sort(live_tokens.begin(), live_tokens.end(), [&state](u32 left, u32 right) {
+        if (state.token_count[left] != state.token_count[right]) {
+            return state.token_count[left] > state.token_count[right];
+        }
+        return std::strcmp(state.vocabulary[left].c_str(), state.vocabulary[right].c_str()) < 0;
+    });
 
     results.tokens.clear();
     results.tokens.reserve(live_tokens.size());
     for (u32 token_id : live_tokens) {
         const std::string& text = state.vocabulary[token_id];
-        results.tokens.push_back(
-            TokenCount{std::vector<Byte>(text.begin(), text.end()),
-                       static_cast<std::size_t>(state.token_count[token_id])});
+        results.tokens.push_back(TokenCount{std::vector<Byte>(text.begin(), text.end()),
+                                            static_cast<std::size_t>(state.token_count[token_id])});
     }
 }
 

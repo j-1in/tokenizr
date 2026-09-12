@@ -14,8 +14,7 @@ namespace {
 
 std::int64_t elapsed_ms(const std::chrono::steady_clock::time_point& start,
                         const std::chrono::steady_clock::time_point& end) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-        .count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
 constexpr std::uint64_t kOnes = ~0ULL / 255;
@@ -82,8 +81,7 @@ struct ChunkedEq {
             if (z) {
                 const std::size_t p = __builtin_ctzll(z) >> 3;
                 const std::uint64_t mask =
-                    (p == 7) ? ~std::uint64_t{0}
-                             : ((std::uint64_t{1} << (8 * (p + 1))) - 1);
+                    (p == 7) ? ~std::uint64_t{0} : ((std::uint64_t{1} << (8 * (p + 1))) - 1);
                 return ((ca ^ cb) & mask) == 0;
             }
             if (ca != cb) {
@@ -106,8 +104,7 @@ struct ChunkedEq {
 void task1(const std::vector<Word>& words, Results& results) {
     results.word_counts.clear();
     results.char_splits.clear();
-    const std::chrono::steady_clock::time_point t_wc0 =
-        std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point t_wc0 = std::chrono::steady_clock::now();
     if (words.empty()) {
         LOG(INFO) << "word count: 0 ms; char split: 0 ms";
         return;
@@ -119,8 +116,8 @@ void task1(const std::vector<Word>& words, Results& results) {
     }
     ++end;
 
-    std::unordered_map<const Byte*, std::size_t, ChunkedHash, ChunkedEq> counts(
-        0, ChunkedHash{end}, ChunkedEq{end});
+    std::unordered_map<const Byte*, std::size_t, ChunkedHash, ChunkedEq> counts(0, ChunkedHash{end},
+                                                                                ChunkedEq{end});
     counts.reserve(words.size());
     for (const Word& word : words) {
         ++counts[word.bytes];
@@ -136,8 +133,7 @@ void task1(const std::vector<Word>& words, Results& results) {
                  const std::pair<const Byte*, std::size_t>& b) {
                   return ByteStrLess{}(a.first, b.first);
               });
-    const std::chrono::steady_clock::time_point t_wc1 =
-        std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point t_wc1 = std::chrono::steady_clock::now();
     results.word_counts.reserve(sorted.size());
     results.char_splits.reserve(sorted.size());
     for (const auto& entry : sorted) {
@@ -147,8 +143,7 @@ void task1(const std::vector<Word>& words, Results& results) {
         results.word_counts.push_back(WordCount{bytes, entry.second});
         results.char_splits.push_back(CharSplit{bytes, entry.second});
     }
-    const std::chrono::steady_clock::time_point t_cs1 =
-        std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point t_cs1 = std::chrono::steady_clock::now();
     LOG(INFO) << "word count: " << elapsed_ms(t_wc0, t_wc1) << " ms";
     LOG(INFO) << "char split: " << elapsed_ms(t_wc1, t_cs1) << " ms";
 }

@@ -16,3 +16,4 @@ IndentWidth: 4
 SortIncludes: Never
 FixNamespaceComments: false
 IndentPPDirectives: Leave
+ColumnLimit: 100
